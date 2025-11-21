@@ -374,28 +374,37 @@ class PapersFetcher:
     def fetch_acm_by_member(self, query, max_results=20, fetch_all=False):
         """
         Fetch papers from ACM Digital Library via CrossRef member ID.
-        Extracts metadata (title, authors, venue, year, DOI, PDF link) 
+        Extracts metadata (title, authors, venue, year, DOI, PDF link)
         and normalizes results into a standard format.
+        Supports simple 'AND' logic and can fall back to direct ACM API.
         """
-
         if fetch_all:
             max_results = 1000
 
+        # --- ✅ Handle simple AND logic ---
+        # Example: query = "honeypot AND security"
+        terms = [t.strip() for t in query.split("AND") if t.strip()]
+        main_term = terms[0] if terms else query
+        extra_terms = [t.lower() for t in terms[1:]]
+
         url = "https://api.crossref.org/works"
-        params = {"query": query, "rows": max_results, "filter": "member:320"}
+        params = {"query": main_term, "rows": max_results, "filter": "member:320"}
 
         papers = []
         try:
-            response = requests.get(url, params=params)
+            response = requests.get(url, params=params, timeout=30)
             response.raise_for_status()
             items = response.json()["message"]["items"]
 
             for item in items:
                 title = item.get("title", [""])[0]
-                authors = ", ".join([f"{a.get('given', '')} {a.get('family', '')}".strip() 
-                                    for a in item.get("author", [])])
+                authors = ", ".join([
+                    f"{a.get('given', '')} {a.get('family', '')}".strip()
+                    for a in item.get("author", [])
+                ])
 
                 last_updated = None
+                year = [None]
                 if "issued" in item and "date-parts" in item["issued"]:
                     year = item["issued"]["date-parts"][0]
                     last_updated = "-".join(str(x) for x in year)
@@ -410,23 +419,23 @@ class PapersFetcher:
                             break
 
                 pdf_status = "downloaded" if pdf_url else "unavailable"
-
-                papers.append(self.normalize_paper(
-                    paper_id=doi,
-                    title=title,
-                    authors=authors,
-                    venue=item.get("container-title", ["ACM Digital Library"])[0],
-                    year=year[0],
-                    doi=doi,
-                    pdf_url=pdf_url,
-                    pdf_status=pdf_status,
-                    source="ACM Digital Library",
-                    abstract=item.get("abstract",""),
-                    abstract_hit=query.lower() in title.lower(),
-                    paper_type=item.get("type",""),
-                    last_updated=last_updated
-                ))
-
+                combined_text = f"{title.lower()} {item.get('abstract', '').lower()}"
+                if all(term in combined_text for term in extra_terms):
+                    papers.append(self.normalize_paper(
+                        paper_id=doi,
+                        title=title,
+                        authors=authors,
+                        venue=item.get("container-title", ["ACM Digital Library"])[0],
+                        year=year[0],
+                        doi=doi,
+                        pdf_url=pdf_url,
+                        pdf_status=pdf_status,
+                        source="ACM Digital Library",
+                        abstract=item.get("abstract", ""),
+                        abstract_hit=query.lower() in title.lower(),
+                        paper_type=item.get("type", ""),
+                        last_updated=last_updated
+                    ))
         except Exception as e:
             print(f"ACM member search fetch error: {e}")
 

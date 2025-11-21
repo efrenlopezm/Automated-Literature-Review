@@ -102,16 +102,18 @@ def scan_papers(request: ScanRequest):
     secondary_keywords_raw = request.secondary_keywords
 
     if secondary_keywords_raw.strip():
-        raw_keywords = (
-            secondary_keywords_raw.replace("AND", " ")
-            .replace("and", " ")
-            .replace(",", " ")
-            .split()
-        )
+        raw_keywords = [kw.strip() for kw in secondary_keywords_raw.split(",") if kw.strip()]
+
+        clean_keywords = [
+            kw.strip(" \"“”'") for kw in raw_keywords if kw.strip()
+        ]
+    else:
+        clean_keywords = []
     if query.strip():
         query_raw_keywords = query.replace("AND", " ").replace("and", " ").split()
-    
-    secondary_keywords = [kw.strip() for kw in raw_keywords if kw.strip()]
+
+    secondary_keywords = clean_keywords
+
 
     logger.info(
         f"Scanning PDFs for {len(papers)} papers "
